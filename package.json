@@ -1,0 +1,16 @@
+{
+  "name": "nashr",
+  "version": "0.1.0",
+  "description": "Open-source AI social media assistant for small businesses. Writes posts in your customers' dialect from your products, plans the month, and publishes to Facebook, Instagram and Telegram.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": { "@anthropic-ai/sdk": "0.135.0" },
+  "license": "MIT",
+  "keywords": ["social-media", "scheduler", "ai", "facebook", "instagram", "telegram", "arabic", "self-hosted", "claude", "ollama"]
+}

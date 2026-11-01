@@ -1,0 +1,20 @@
+# One-click deploy on a Hostinger VPS (Docker Manager), or anywhere with Docker:
+#   docker compose up -d
+# Then open http://YOUR-SERVER-IP and create your password.
+# For Instagram, put Nashr behind an HTTPS domain so Instagram can fetch your photos.
+services:
+  nashr:
+    image: ghcr.io/mashraf1997/nashr:latest
+    container_name: nashr
+    restart: unless-stopped
+    ports:
+      - "80:3000"
+    environment:
+      - NODE_ENV=production
+      - SETUP_TOKEN=${SETUP_TOKEN:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - nashr-data:/data
+
+volumes:
+  nashr-data:
