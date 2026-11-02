@@ -8,6 +8,8 @@ import { syncBrandCatalog } from './catalog.js';
 import { CLAUDE_MODELS, AIError } from './ai.js';
 import { hashPassword, verifyPassword, createSession, checkSession, parseCookies, RateLimiter } from './auth.js';
 import { send, readJson, clientIp, originOf, serveStatic, sendFile, cookie, VERSION } from './http.js';
+import { demoConfig, resetData } from './demo-mode.js';
+import { buildDemo, demoIdeas } from './demo-data.js';
 
 const MASK = '••••••';
 const IMAGE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -21,6 +23,10 @@ function sniff(buf) {
 
 export function createApp({ dataDir, setupToken = process.env.SETUP_TOKEN || '', env = process.env } = {}) {
   const store = new Store(dataDir);
+  const demo = demoConfig(env);
+  const resetDemo = () => { resetData(store.data, () => buildDemo(demo), demo); store.flush(); };
+  if (demo) resetDemo();
+  const DEMO_BLOCKED = 'Not available in the demo';
   if (!store.data.admin) {
     const ai = store.data.settings.ai;
     if (env.AI_PROVIDER === 'openai' || env.AI_PROVIDER === 'anthropic') ai.provider = env.AI_PROVIDER;
@@ -85,7 +91,8 @@ export function createApp({ dataDir, setupToken = process.env.SETUP_TOKEN || '',
       return post;
     }
     post.status = 'publishing';
-    const { results, ok } = await publishPost(store, post, brand);
+    // The demo never reaches real platforms: publishing is simulated.
+    const { results, ok } = demo ? { results: Object.fromEntries(post.platforms.map((x) => [x, { id: 'demo' }])), ok: true } : await publishPost(store, post, brand);
     post.results = results;
     post.status = ok ? 'published' : 'failed';
     post.publishedAt = ok ? new Date().toISOString() : post.publishedAt;
@@ -115,9 +122,10 @@ export function createApp({ dataDir, setupToken = process.env.SETUP_TOKEN || '',
         store.data.meta.publicUrl = originOf(req);
         store.save();
       }
-      return send(res, 200, { needsSetup: !store.data.admin, authed, setupTokenRequired: Boolean(setupToken), version: VERSION, timezone: tz() });
+      return send(res, 200, { needsSetup: !store.data.admin, authed, setupTokenRequired: Boolean(setupToken), version: VERSION, timezone: tz(), demo: demo ? { password: demo.password, resetMinutes: demo.resetMinutes } : null });
     }
     if (p === '/api/setup' && method === 'POST') {
+      if (demo) return send(res, 403, { error: DEMO_BLOCKED });
       if (store.data.admin) return send(res, 409, { error: 'Already set up' });
       const body = await readJson(req);
       if (setupToken && body.setupToken !== setupToken) return send(res, 403, { error: 'Wrong setup token' });
@@ -153,6 +161,7 @@ export function createApp({ dataDir, setupToken = process.env.SETUP_TOKEN || '',
   async function api(req, res, url, p, method) {
     const d = store.data;
     let m;
+    if (demo && (p === '/api/password' || (p === '/api/settings' && method === 'PUT') || /^\/api\/brands\/[\w-]+\/(sync|test)$/.test(p))) return send(res, 403, { error: DEMO_BLOCKED });
 
     if (p === '/api/overview' && method === 'GET') {
       const now = Date.now();
@@ -165,7 +174,7 @@ export function createApp({ dataDir, setupToken = process.env.SETUP_TOKEN || '',
         published7d: d.posts.filter((x) => x.status === 'published' && Date.parse(x.publishedAt) >= week).length,
         failed: d.posts.filter((x) => x.status === 'failed').length,
         next: upcoming.slice(0, 5).map(postView),
-        aiReady: d.settings.ai.provider === 'openai' ? Boolean(d.settings.ai.model) : Boolean(d.settings.ai.apiKey || env.ANTHROPIC_API_KEY),
+        aiReady: Boolean(demo) || (d.settings.ai.provider === 'openai' ? Boolean(d.settings.ai.model) : Boolean(d.settings.ai.apiKey || env.ANTHROPIC_API_KEY)),
         connected: d.brands.some((b) => PLATFORMS.some((x) => b.channels[x].enabled)),
       });
     }
@@ -186,6 +195,7 @@ export function createApp({ dataDir, setupToken = process.env.SETUP_TOKEN || '',
         const body = await readJson(req);
         const beforeCatalog = JSON.stringify([b.catalog.source, b.catalog.url]);
         const { catalog, ...rest } = body.brand || {};
+        if (demo) delete rest.channels; // tokens stay empty in the demo
         mergeKeep(b, rest);
         if (catalog) mergeKeep(b.catalog, { source: catalog.source, url: catalog.url });
         b.schedule.times = (b.schedule.times || []).filter((t) => /^\d{1,2}:\d{2}$/.test(t));
@@ -230,7 +240,7 @@ export function createApp({ dataDir, setupToken = process.env.SETUP_TOKEN || '',
       if (b.catalog.source !== 'none' && b.catalog.url && !b.catalog.syncedAt) await syncBrandCatalog(b);
       let ideas;
       try {
-        ideas = await writePlan(d.settings.ai, b, { count, theme: String(body.theme || '').slice(0, 300), occasion: String(body.occasion || '').slice(0, 200) });
+        ideas = demo ? demoIdeas(b, count) : await writePlan(d.settings.ai, b, { count, theme: String(body.theme || '').slice(0, 300), occasion: String(body.occasion || '').slice(0, 200) });
       } catch (err) {
         return send(res, err instanceof AIError ? 502 : 500, { error: err.message, code: err.code });
       }
@@ -321,7 +331,8 @@ export function createApp({ dataDir, setupToken = process.env.SETUP_TOKEN || '',
       if (!post) return send(res, 404, { error: 'Post not found' });
       const body = await readJson(req);
       try {
-        Object.assign(post, await rewritePost(d.settings.ai, store.brand(post.brandId) || newBrand(), post, String(body.instruction || '').slice(0, 300)));
+        if (demo) Object.assign(post, { text: post.text + (/[a-z]/i.test(post.text) ? '\n\n(Rewritten in the demo: connect an AI key on your own server.)' : '\n\n(نسخة الديمو: اربط مفتاح AI على سيرفرك عشان إعادة الصياغة الحقيقية.)') });
+        else Object.assign(post, await rewritePost(d.settings.ai, store.brand(post.brandId) || newBrand(), post, String(body.instruction || '').slice(0, 300)));
       } catch (err) {
         return send(res, 502, { error: err.message });
       }
@@ -367,7 +378,9 @@ export function createApp({ dataDir, setupToken = process.env.SETUP_TOKEN || '',
   });
 
   let timer = null;
+  let demoTimer = null;
   return {
+    resetDemo,
     server,
     store,
     publishDue,
@@ -376,11 +389,13 @@ export function createApp({ dataDir, setupToken = process.env.SETUP_TOKEN || '',
       for (const post of store.data.posts) if (post.status === 'publishing') post.status = 'scheduled';
       timer = setInterval(() => publishDue().catch((e) => console.error('[scheduler]', e.message)), 30_000);
       timer.unref?.();
+      if (demo) { demoTimer = setInterval(resetDemo, demo.resetMinutes * 60_000); demoTimer.unref?.(); }
       await new Promise((r) => server.listen(port, r));
       return server.address().port;
     },
     async stop() {
       clearInterval(timer);
+      clearInterval(demoTimer);
       store.flush();
       await new Promise((r) => server.close(r));
     },

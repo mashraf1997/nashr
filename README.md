@@ -74,6 +74,10 @@ Press **Send a test post** next to each one to check the connection.
 | `PORT` | `3000` | HTTP port |
 | `DATA_DIR` | `./data` | Where `nashr.json` and photos are kept. Back it up. |
 | `SETUP_TOKEN` | *(empty)* | Required to create the first admin when set |
+| `DEMO_MODE` | `false` | `true` makes this a public demo: sample data, a reset every hour, and settings that reach outside (tokens, keys, password) locked |
+| `DEMO_PASSWORD` | `demo1234` | Password shown on the demo sign-in screen |
+| `DEMO_RESET_MINUTES` | `60` | How often the demo data resets (minimum 5) |
+| `DEMO_LANG` | `ar` | Language of the sample data: `ar` or `en` |
 | `ANTHROPIC_API_KEY` | *(empty)* | Claude key, if none is entered in Settings |
 | `AI_PROVIDER`, `AI_MODEL`, `AI_BASE_URL`, `AI_API_KEY` | | First-boot AI defaults |
 | `META_GRAPH_VERSION` | `v23.0` | Graph API version |
